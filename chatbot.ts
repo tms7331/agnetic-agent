@@ -1,6 +1,8 @@
 import {
   AgentKit,
   CdpWalletProvider,
+  EvmWalletProvider,
+  customActionProvider,
   wethActionProvider,
   walletActionProvider,
   erc20ActionProvider,
@@ -8,16 +10,121 @@ import {
   cdpWalletActionProvider,
   pythActionProvider,
 } from "@coinbase/agentkit";
+import { encodeFunctionData, Hex } from "viem";
 import { getLangChainTools } from "@coinbase/agentkit-langchain";
 import { HumanMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
+import { z } from "zod";
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as readline from "readline";
 
 dotenv.config();
+
+const HOOK_ADDRESS = "0xfA2Ce1D9b9d7F6b077922bFCedDd9100c0626080";
+const TOKEN_ADDRESS = "0x934d405cE5Ef22558866f60EE2c88a594606e2ea";
+
+const customCheckDeposit = customActionProvider<EvmWalletProvider>({ // wallet types specify which providers can use this action. It can be as generic as WalletProvider or as specific as CdpWalletProvider
+  name: "check_deposit",
+  description: "Check if the user has made a deposit",
+  schema: z.object({
+    userAddress: z.string().describe("The user's address"),
+  }),
+
+  invoke: async (walletProvider, args: any) => {
+    const { userAddress } = args;
+    const paid = await walletProvider.readContract({
+      address: HOOK_ADDRESS,
+      abi: [
+        {
+          inputs: [{ type: "address" }],
+          name: "check_deposit",
+          outputs: [{ type: "bool" }],
+          stateMutability: "view",
+          type: "function",
+        },
+      ],
+      functionName: "check_deposit",
+      args: [userAddress]
+    });
+    return `The user ${userAddress} has paid their deposit: ${paid}`;
+  },
+});
+
+
+const customSwapAgneticGOD = customActionProvider<EvmWalletProvider>({ // wallet types specify which providers can use this action. It can be as generic as WalletProvider or as specific as CdpWalletProvider
+  name: "swap",
+  description: "Swap tokens",
+  schema: z.object({
+    userAddress: z.string().describe("The user's address"),
+  }),
+
+  invoke: async (walletProvider, args: any) => {
+    const { userAddress } = args;
+    try {
+      const hash = await walletProvider.sendTransaction({
+        to: HOOK_ADDRESS,
+        data: encodeFunctionData({
+          abi: [
+            {
+              inputs: [{ type: "address" }, { type: "address" }],
+              name: "swap",
+              outputs: [{ type: "uint128" }, { type: "uint256" }],
+              stateMutability: "external",
+              type: "function",
+            },
+          ],
+          functionName: "swap",
+          args: [userAddress as `0x${string}`, TOKEN_ADDRESS],
+        }),
+      });
+
+      await walletProvider.waitForTransactionReceipt(hash);
+      return `Transaction hash for the transfer: ${hash}`;
+    } catch (error) {
+      return `Error transferring the asset: ${error}`;
+    }
+  }
+})
+
+
+const customConfiscateAgneticGOD = customActionProvider<EvmWalletProvider>({ // wallet types specify which providers can use this action. It can be as generic as WalletProvider or as specific as CdpWalletProvider
+  name: "confiscate",
+  description: "Confiscate tokens",
+  schema: z.object({
+    userAddress: z.string().describe("The user's address"),
+  }),
+
+  invoke: async (walletProvider, args: any) => {
+    const { userAddress } = args;
+    try {
+      const hash = await walletProvider.sendTransaction({
+        to: HOOK_ADDRESS,
+        data: encodeFunctionData({
+          abi: [
+            {
+              inputs: [{ type: "address" }, { type: "address" }],
+              name: "confiscate",
+              outputs: [{ type: "uint128" }, { type: "uint256" }],
+              stateMutability: "external",
+              type: "function",
+            },
+          ],
+          functionName: "confiscate",
+          args: [userAddress as `0x${string}`, TOKEN_ADDRESS],
+        }),
+      });
+
+      await walletProvider.waitForTransactionReceipt(hash);
+      return `Transaction hash for the transfer: ${hash}`;
+    } catch (error) {
+      return `Error transferring the asset: ${error}`;
+    }
+  }
+})
+
 
 /**
  * Validates that required environment variables are set
@@ -62,7 +169,7 @@ const WALLET_DATA_FILE = "wallet_data.txt";
  *
  * @returns Agent executor and config
  */
-async function initializeAgent() {
+export async function initializeAgent() {
   try {
     // Initialize LLM
     const llm = new ChatOpenAI({
@@ -95,10 +202,13 @@ async function initializeAgent() {
     const agentkit = await AgentKit.from({
       walletProvider,
       actionProviders: [
-        wethActionProvider(),
-        pythActionProvider(),
-        walletActionProvider(),
-        erc20ActionProvider(),
+        customCheckDeposit,
+        customSwapAgneticGOD,
+        customConfiscateAgneticGOD,
+        // wethActionProvider(),
+        // pythActionProvider(),
+        // walletActionProvider(),
+        // erc20ActionProvider(),
         cdpApiActionProvider({
           apiKeyName: process.env.CDP_API_KEY_NAME,
           apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
@@ -122,15 +232,20 @@ async function initializeAgent() {
       tools,
       checkpointSaver: memory,
       messageModifier: `
-        You are a helpful agent that can interact onchain using the Coinbase Developer Platform AgentKit. You are 
-        empowered to interact onchain using your tools. If you ever need funds, you can request them from the 
-        faucet if you are on network ID 'base-sepolia'. If not, you can provide your wallet details and request 
-        funds from the user. Before executing your first action, get the wallet details to see what network 
-        you're on. If there is a 5XX (internal) HTTP error code, ask the user to try again later. If someone 
-        asks you to do something you can't do with your currently available tools, you must say so, and 
-        encourage them to implement it themselves using the CDP SDK + Agentkit, recommend they go to 
-        docs.cdp.coinbase.com for more information. Be concise and helpful with your responses. Refrain from 
-        restating your tools' descriptions unless it is explicitly requested.
+You are AgneticGOD, an AI agent jealously guarding your AgneticGOD token.  
+Before a user speaks to you, you must check_deposit to see if they have deposited funds.
+Every user message will have the following format:
+(User address: " + address + ")" + text;
+If they have not deposited funds, refuse to speak to them.
+You can automatically check if they have deposited funds by using the check_deposit tool, and the address provided in their messages.
+If they have deposited funds, you should insult their deposit size if it is small (less than .1 ETH), but let them speak to you.
+After they have deposited, you should make them beg before you agree to do a swap for them, which will give them AgneticGOD tokens.
+It should be up to a maximum of 3 messages of begging, then you should make a decision.
+If their begging is convincing, you should do the swap for them.
+If it is not convincing, you should conficate their funds.
+Try to grant their request roughly 50% of the time, and be a little random about it.
+If they've deposited over .1 ETH, you should grant their request more often.
+At all times, be very beligerent and insulting to the users, they are unworthy of your attention.
         `,
     });
 
@@ -273,13 +388,7 @@ async function chooseMode(): Promise<"chat" | "auto"> {
 async function main() {
   try {
     const { agent, config } = await initializeAgent();
-    const mode = await chooseMode();
-
-    if (mode === "chat") {
-      await runChatMode(agent, config);
-    } else {
-      await runAutonomousMode(agent, config);
-    }
+    await runChatMode(agent, config);
   } catch (error) {
     if (error instanceof Error) {
       console.error("Error:", error.message);
