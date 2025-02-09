@@ -23,8 +23,8 @@ import * as readline from "readline";
 
 dotenv.config();
 
-const HOOK_ADDRESS = "0xfA2Ce1D9b9d7F6b077922bFCedDd9100c0626080";
-const TOKEN_ADDRESS = "0x934d405cE5Ef22558866f60EE2c88a594606e2ea";
+const HOOK_ADDRESS = "0x32Ad6efd93D32dcDf0Ffd2Fc09a271C234642080";
+const TOKEN_ADDRESS = "0x59646e90E5A703f23f73312207b416A038E2C176";
 
 const customCheckDeposit = customActionProvider<EvmWalletProvider>({ // wallet types specify which providers can use this action. It can be as generic as WalletProvider or as specific as CdpWalletProvider
   name: "check_deposit",
